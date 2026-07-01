@@ -1,0 +1,6 @@
+---
+- name: Clean up report directory
+  ansible.builtin.file:
+    path: "{{ _netapp_report_run_dir }}"
+    state: absent
+  when: netapp_report_cleanup | bool

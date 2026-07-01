@@ -1,0 +1,9 @@
+---
+# ENCRYPT THIS FILE: ansible-vault encrypt inventory/production/group_vars/all/vault.yml
+#
+# When using AAP Controller, these values are injected via the custom
+# NetApp ONTAP credential type (see aap/credential_types/netapp_ontap.yml)
+# and this file can be left empty or removed.
+
+vault_netapp_username: "CHANGE_ME"
+vault_netapp_password: "CHANGE_ME"

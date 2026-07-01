@@ -1,0 +1,22 @@
+---
+galaxy_info:
+  role_name: netapp_volume_manager
+  author: "Storage Automation Team"
+  description: >-
+    Production-grade NetApp ONTAP volume management role.
+    Discovers undersized volumes with autosize disabled and grows them
+    by a configurable percentage with full validation and reporting.
+  company: ""
+  license: "Apache-2.0"
+  min_ansible_version: "2.15"
+  platforms:
+    - name: GenericLinux
+      versions:
+        - all
+
+dependencies: []
+
+collections:
+  - netapp.ontap
+  - community.general
+  - ansible.utils

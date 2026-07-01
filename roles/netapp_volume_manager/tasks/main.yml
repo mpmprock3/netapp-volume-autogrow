@@ -1,0 +1,34 @@
+---
+- name: Validate required connection parameters
+  ansible.builtin.assert:
+    that:
+      - netapp_hostname | length > 0
+      - netapp_username | length > 0
+      - netapp_password | length > 0
+      - netapp_target_svm | length > 0
+    fail_msg: >-
+      Missing required NetApp connection parameters.
+      Ensure netapp_hostname, netapp_username, netapp_password, and
+      netapp_target_svm are defined in inventory group_vars or
+      injected via AAP credential type.
+    quiet: true
+
+- name: Run preflight connectivity checks
+  ansible.builtin.include_tasks: preflight.yml
+
+- name: Route to requested action
+  ansible.builtin.include_tasks: "{{ _action_file }}"
+  vars:
+    _action_file: >-
+      {%- if netapp_action == 'filter' -%}
+        filter_volumes.yml
+      {%- elif netapp_action == 'grow' -%}
+        grow_volumes.yml
+      {%- else -%}
+        unsupported.yml
+      {%- endif -%}
+
+- name: Fail on unsupported action
+  ansible.builtin.fail:
+    msg: "Unsupported netapp_action '{{ netapp_action }}'. Valid values: filter, grow"
+  when: netapp_action not in ['filter', 'grow']

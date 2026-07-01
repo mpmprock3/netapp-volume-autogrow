@@ -1,0 +1,20 @@
+---
+version: 3
+
+images:
+  base_image:
+    name: "registry.redhat.io/ansible-automation-platform/ee-supported-rhel9:latest"
+
+dependencies:
+  galaxy: requirements.yml
+  python: requirements.txt
+  system: ""
+
+options:
+  package_manager_path: /usr/bin/microdnf
+
+additional_build_files: []
+
+additional_build_steps:
+  append_final:
+    - RUN microdnf clean all

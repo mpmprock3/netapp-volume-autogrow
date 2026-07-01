@@ -1,0 +1,8 @@
+---
+collections:
+  - name: netapp.ontap
+    version: ">=22.12.0"
+  - name: community.general
+    version: ">=9.0.0"
+  - name: ansible.utils
+    version: ">=4.0.0"

@@ -1,0 +1,85 @@
+---
+- name: Query modified volumes for validation
+  netapp.ontap.na_ontap_rest_info:
+    hostname: "{{ netapp_hostname }}"
+    username: "{{ netapp_username }}"
+    password: "{{ netapp_password }}"
+    https: "{{ netapp_https }}"
+    validate_certs: "{{ netapp_validate_certs }}"
+    use_rest: always
+    gather_subset:
+      - storage/volumes
+    parameters:
+      svm.name: "{{ netapp_target_svm }}"
+      name: "{{ item.volume }}"
+    fields:
+      - name
+      - svm.name
+      - size
+      - space.size
+      - autosize.mode
+      - autosize.maximum
+      - state
+  register: _validation_raw
+  retries: "{{ netapp_retry_count }}"
+  delay: "{{ netapp_retry_delay }}"
+  until: _validation_raw is not failed
+  loop: "{{ _growth_plan }}"
+  loop_control:
+    label: "{{ item.volume }}"
+  throttle: "{{ netapp_throttle }}"
+
+- name: Build validation report
+  ansible.builtin.set_fact:
+    volume_details: []
+
+- name: Populate validation report
+  ansible.builtin.set_fact:
+    volume_details: >-
+      {{ volume_details + [_detail] }}
+  vars:
+    _vol: "{{ item.results[0] if item.results is defined else {} }}"
+    _records: "{{ item.ontap_info['storage/volumes'].records | default([]) }}"
+    _record: "{{ _records | first | default({}) }}"
+    _expected_plan: "{{ _growth_plan | selectattr('volume', 'equalto', item.item.volume) | first | default({}) }}"
+    _actual_max_gb: "{{ (_record.autosize.maximum | default(0) | float / 1073741824) | round(2) }}"
+    _expected_max_gb: "{{ _expected_plan.new_max_size_gb | default(0) | float }}"
+    _detail:
+      vserver_name: "{{ _record.svm.name | default('N/A') }}"
+      volume_name: "{{ _record.name | default(item.item.volume) }}"
+      filesystem_size: "{{ ((_record.size | default(0) | float) / 1073741824) | round(2) }}"
+      max_autosize: "{{ _actual_max_gb }}"
+      autosize_mode: "{{ _record.autosize.mode | default('N/A') }}"
+      expected_max_gb: "{{ _expected_max_gb }}"
+      validation_passed: "{{ (_actual_max_gb | float - _expected_max_gb | float) | abs < 1.0 }}"
+      state: "{{ _record.state | default('N/A') }}"
+  loop: "{{ _validation_raw.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.volume }}"
+
+- name: Display validation results
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      POST-GROWTH VALIDATION
+      ========================================
+      {% for v in volume_details %}
+      {{ v.volume_name }}:
+        Size:           {{ v.filesystem_size }}GB
+        Max Autosize:   {{ v.max_autosize }}GB (expected: {{ v.expected_max_gb }}GB)
+        Autosize Mode:  {{ v.autosize_mode }}
+        State:          {{ v.state }}
+        Validation:     {{ 'PASS' if v.validation_passed | bool else 'FAIL' }}
+      {% endfor %}
+      ========================================
+      Passed: {{ volume_details | selectattr('validation_passed') | list | length }} / {{ volume_details | length }}
+      ========================================
+
+- name: Fail if any volume failed validation
+  ansible.builtin.fail:
+    msg: >-
+      {{ volume_details | rejectattr('validation_passed') | map(attribute='volume_name') | list | join(', ') }}
+      failed post-growth validation. Review the validation output above.
+  when:
+    - netapp_fail_on_validation_error | bool
+    - volume_details | rejectattr('validation_passed') | list | length > 0

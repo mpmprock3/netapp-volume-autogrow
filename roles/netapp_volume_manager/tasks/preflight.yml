@@ -1,0 +1,53 @@
+---
+- name: Test NetApp ONTAP API connectivity
+  netapp.ontap.na_ontap_rest_info:
+    hostname: "{{ netapp_hostname }}"
+    username: "{{ netapp_username }}"
+    password: "{{ netapp_password }}"
+    https: "{{ netapp_https }}"
+    validate_certs: "{{ netapp_validate_certs }}"
+    use_rest: always
+    gather_subset:
+      - cluster/nodes
+    fields:
+      - name
+  register: _netapp_cluster_info
+  retries: "{{ netapp_retry_count }}"
+  delay: "{{ netapp_retry_delay }}"
+  until: _netapp_cluster_info is not failed
+
+- name: Validate SVM exists and is operational
+  netapp.ontap.na_ontap_rest_info:
+    hostname: "{{ netapp_hostname }}"
+    username: "{{ netapp_username }}"
+    password: "{{ netapp_password }}"
+    https: "{{ netapp_https }}"
+    validate_certs: "{{ netapp_validate_certs }}"
+    use_rest: always
+    gather_subset:
+      - svm/svms
+    parameters:
+      name: "{{ netapp_target_svm }}"
+    fields:
+      - name
+      - state
+  register: _netapp_svm_info
+  retries: "{{ netapp_retry_count }}"
+  delay: "{{ netapp_retry_delay }}"
+  until: _netapp_svm_info is not failed
+
+- name: Assert SVM is reachable
+  ansible.builtin.assert:
+    that:
+      - _netapp_svm_info.ontap_info['svm/svms'].records | length > 0
+    fail_msg: >-
+      SVM '{{ netapp_target_svm }}' not found on {{ netapp_hostname }}.
+      Verify the SVM name and that the credentials have access.
+    quiet: true
+
+- name: Display preflight status
+  ansible.builtin.debug:
+    msg: >-
+      Preflight passed: Connected to {{ netapp_hostname }},
+      SVM '{{ netapp_target_svm }}' is accessible.
+      Cluster nodes: {{ _netapp_cluster_info.ontap_info['cluster/nodes'].records | map(attribute='name') | join(', ') }}

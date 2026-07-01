@@ -1,0 +1,29 @@
+---
+# NetApp ONTAP connection settings (non-sensitive)
+# Credentials are in vault.yml (encrypted) or injected via AAP credential type
+
+netapp_hostname: "storage.example.com"
+netapp_https: true
+netapp_validate_certs: true
+netapp_ontap_port: 443
+netapp_target_svm: "SVM_Name"
+
+# Volume filtering thresholds
+netapp_volume_size_threshold_gb: 100
+netapp_volume_name_prefix: "trident_pvc"
+
+# Volume growth settings
+netapp_volume_growth_percent: 50
+netapp_volume_autosize_target_mode: "grow_shrink"
+
+# Credential references (values come from vault.yml or AAP credential injection)
+netapp_username: "{{ vault_netapp_username }}"
+netapp_password: "{{ vault_netapp_password }}"
+
+# SMTP / email settings
+smtp_host: "smtp.example.com"
+smtp_port: 25
+mail_from: "ansible-automation@example.com"
+mail_to: "storage-team@example.com"
+mail_cc: "infra-ops@example.com"
+mail_subject: "NetApp Volume Autogrow Report - {{ netapp_target_svm }}"

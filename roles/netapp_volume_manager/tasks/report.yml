@@ -1,0 +1,65 @@
+---
+- name: Create report directory
+  ansible.builtin.file:
+    path: "{{ _netapp_report_run_dir }}"
+    state: directory
+    mode: "0750"
+  vars:
+    _netapp_report_run_dir: "{{ netapp_report_dir }}/{{ ansible_date_time.iso8601_basic_short | default('run') }}"
+  register: _report_dir
+
+- name: Set report directory path
+  ansible.builtin.set_fact:
+    _netapp_report_run_dir: "{{ _report_dir.path }}"
+
+- name: Generate CSV report
+  ansible.builtin.template:
+    src: volume_report.csv.j2
+    dest: "{{ _netapp_report_run_dir }}/volume_details.csv"
+    mode: "0640"
+  register: _csv_report
+
+- name: Generate HTML email body
+  ansible.builtin.template:
+    src: email_body.html.j2
+    dest: "{{ _netapp_report_run_dir }}/email_body.html"
+    mode: "0640"
+  register: _html_body
+
+- name: Send volume growth report email
+  community.general.mail:
+    host: "{{ smtp_host }}"
+    port: "{{ smtp_port }}"
+    from: "{{ mail_from }}"
+    to: "{{ mail_to }}"
+    cc: "{{ mail_cc | default(omit) }}"
+    subject: "{{ mail_subject }} - {{ ansible_date_time.date | default('') }}"
+    subtype: html
+    body: "{{ lookup('file', _netapp_report_run_dir + '/email_body.html') }}"
+    attach:
+      - "{{ _netapp_report_run_dir }}/volume_details.csv"
+  when:
+    - netapp_send_email | bool
+    - smtp_host | length > 0
+    - mail_from | length > 0
+    - mail_to | length > 0
+
+- name: Display report file location
+  ansible.builtin.debug:
+    msg: "Report saved to: {{ _netapp_report_run_dir }}/volume_details.csv"
+
+- name: Publish growth results for downstream workflow
+  ansible.builtin.set_stats:
+    data:
+      growth_results: "{{ volume_details | default([]) }}"
+      growth_count: "{{ volume_details | default([]) | length }}"
+      growth_passed: "{{ volume_details | default([]) | selectattr('validation_passed') | list | length }}"
+      growth_failed: "{{ volume_details | default([]) | rejectattr('validation_passed') | list | length }}"
+    per_host: false
+
+- name: Schedule report cleanup
+  ansible.builtin.file:
+    path: "{{ _netapp_report_run_dir }}"
+    state: absent
+  when: netapp_report_cleanup | bool
+  notify: Clean up report directory

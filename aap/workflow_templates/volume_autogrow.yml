@@ -1,0 +1,115 @@
+---
+# AAP Workflow Job Template: NetApp Volume Autogrow
+#
+# This file documents the AAP workflow template configuration.
+# Import via AAP Controller UI or use awx CLI / ansible.controller collection.
+#
+# Workflow Structure:
+#   ┌──────────────────┐     ┌──────────────┐     ┌──────────────────┐
+#   │  Job 1: Filter   │────▶│   Approval   │────▶│  Job 2: Grow     │
+#   │  (Discovery)     │     │   Node       │     │  (Modification)  │
+#   └──────────────────┘     └──────────────┘     └──────────────────┘
+#         │                        │                       │
+#         ▼                        ▼                       ▼
+#   Publishes volumes        Human review            Grows volumes
+#   via set_stats            of planned changes      sends email report
+#
+# Platform: AAP 2.4 (RPM-based installation on RHEL)
+#   - Automation Controller web UI is used for all setup
+#   - EE image must be built and pushed to Private Automation Hub or a
+#     container registry accessible by the controller
+#
+# Setup Steps:
+#
+# 1. Build and push Execution Environment:
+#    - Run: make build-ee
+#    - Tag and push to your registry:
+#      podman tag netapp-volume-ee:latest hub.example.com/ee-images/netapp-volume-ee:latest
+#      podman push hub.example.com/ee-images/netapp-volume-ee:latest
+#    - Register the EE in Controller: Administration > Execution Environments > Add
+#
+# 2. Create Custom Credential Type (NetApp ONTAP):
+#    - Administration > Credential Types > Add
+#    - Use input/injector config from aap/credential_types/netapp_ontap.yml
+#
+# 3. Create Credential:
+#    - Resources > Credentials > Add
+#    - Type: "NetApp ONTAP" (created in step 2)
+#    - Fill in: hostname, username, password, SVM name
+#
+# 4. Create Project:
+#    - Resources > Projects > Add
+#    - Name: "NetApp Volume Management"
+#    - Source Control Type: Git
+#    - Source Control URL: <your-repo-url>
+#    - Execution Environment: netapp-volume-ee
+#    - Sync the project after creation
+#
+# 5. Create Job Template - Filter:
+#    - Resources > Templates > Add > Job Template
+#    - Name: "NetApp Volume Filter"
+#    - Project: "NetApp Volume Management"
+#    - Playbook: playbooks/netapp_volume_filter.yml
+#    - Inventory: (your inventory)
+#    - Credentials: NetApp ONTAP credential
+#    - Execution Environment: netapp-volume-ee
+#    - Extra Variables:
+#        netapp_volume_size_threshold_gb: 100
+#        netapp_volume_name_prefix: "trident_pvc"
+#
+# 6. Create Job Template - Grow:
+#    - Resources > Templates > Add > Job Template
+#    - Name: "NetApp Volume Grow"
+#    - Project: "NetApp Volume Management"
+#    - Playbook: playbooks/netapp_volume_grow.yml
+#    - Inventory: (your inventory)
+#    - Credentials: NetApp ONTAP credential
+#    - Execution Environment: netapp-volume-ee
+#    - Extra Variables:
+#        netapp_volume_growth_percent: 50
+#        netapp_dry_run: false
+#
+# 7. Create Workflow Job Template:
+#    - Resources > Templates > Add > Workflow Job Template
+#    - Name: "NetApp Volume Autogrow"
+#    - Open the Visualizer and add nodes:
+#      a. Job Template: "NetApp Volume Filter" (start node)
+#      b. Approval Node: "Review volume growth plan"
+#         - Timeout: 3600 (1 hour)
+#         - Description: "Review the volumes identified for growth before proceeding"
+#      c. Job Template: "NetApp Volume Grow" (on approval success)
+#    - Link: Filter --[success]--> Approval --[approved]--> Grow
+#    - Volumes pass between jobs automatically via set_stats artifact
+#
+# 8. Optional - Schedule:
+#    - Under the workflow template > Schedules tab
+#    - Example: Weekly on Sunday at 02:00 AM
+#
+# 9. Optional - Notifications:
+#    - Configure Slack/Email notifications on workflow success/failure
+#    - Under the workflow template > Notifications tab
+
+workflow_name: "NetApp Volume Autogrow"
+workflow_description: >-
+  Discovers NetApp Trident PVC volumes under the size threshold with autosize
+  disabled, presents them for approval, then grows approved volumes by the
+  configured percentage with full validation and email reporting.
+
+nodes:
+  - identifier: filter
+    job_template: "NetApp Volume Filter"
+    success_nodes:
+      - approval
+
+  - identifier: approval
+    type: approval
+    name: "Review Volume Growth Plan"
+    description: >-
+      Review the volumes identified for growth. Approve to proceed with
+      volume modification, or deny to cancel.
+    timeout: 3600
+    success_nodes:
+      - grow
+
+  - identifier: grow
+    job_template: "NetApp Volume Grow"

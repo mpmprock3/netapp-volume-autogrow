@@ -1,0 +1,44 @@
+---
+# Workflow Job 2: Grow NetApp volumes by configured percentage
+#
+# Consumes 'volumes' variable published by Job 1 (via set_stats).
+# For each volume:
+#   1. Sets autosize-mode to grow_shrink
+#   2. Sets max-autosize to current_size * (1 + growth_percent/100)
+#   3. Validates the change was applied
+#   4. Generates CSV report and sends email notification
+#
+# Safety features:
+#   - Dry-run mode: -e netapp_dry_run=true (preview without modifying)
+#   - AAP approval node between Job 1 and Job 2
+#   - Post-growth validation with configurable fail behavior
+#   - Throttled execution to avoid ONTAP API overload
+#
+# Usage (CLI):
+#   ansible-playbook playbooks/netapp_volume_grow.yml \
+#     -i inventory/production \
+#     --ask-vault-pass \
+#     -e '{"volumes": [{"volume": "trident_pvc_xxx", "current_size_gb": 44}]}'
+#
+# Usage (CLI dry-run):
+#   ansible-playbook playbooks/netapp_volume_grow.yml \
+#     -i inventory/production \
+#     --ask-vault-pass \
+#     -e netapp_dry_run=true \
+#     -e '{"volumes": [{"volume": "trident_pvc_xxx", "current_size_gb": 44}]}'
+#
+# Usage (AAP):
+#   Configure as Job Template with NetApp ONTAP credential type.
+#   Wire as Job 2 in the volume_autogrow workflow template (after approval node).
+#   Volumes are auto-injected from Job 1 via set_stats artifact.
+
+- name: NetApp Volume Growth with Validation
+  hosts: netapp_controllers
+  gather_facts: true
+
+  vars_files:
+    - ../inventory/{{ lookup('env', 'ANSIBLE_INVENTORY_ENV') | default('production') }}/group_vars/all/netapp.yml
+
+  roles:
+    - role: netapp_volume_manager
+      netapp_action: grow

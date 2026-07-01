@@ -1,0 +1,16 @@
+profile: production
+
+exclude_paths:
+  - .cache/
+  - volume_filter.yaml
+  - volume_grow.yaml
+
+enable_list:
+  - fqcn
+  - yaml
+
+skip_list:
+  - role-name[path]
+
+warn_list:
+  - experimental

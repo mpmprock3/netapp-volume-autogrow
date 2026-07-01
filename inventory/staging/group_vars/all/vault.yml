@@ -1,0 +1,5 @@
+---
+# ENCRYPT THIS FILE: ansible-vault encrypt inventory/staging/group_vars/all/vault.yml
+
+vault_netapp_username: "CHANGE_ME"
+vault_netapp_password: "CHANGE_ME"

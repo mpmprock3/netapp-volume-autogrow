@@ -1,0 +1,148 @@
+---
+- name: Validate volumes input from upstream workflow
+  ansible.builtin.assert:
+    that:
+      - volumes is defined
+      - volumes | length > 0
+      - volumes | length <= netapp_max_volumes_per_run
+    fail_msg: >-
+      Volume input validation failed.
+      Ensure the upstream workflow job (filter) published volume data via set_stats.
+      volumes defined: {{ volumes is defined }},
+      count: {{ volumes | default([]) | length }},
+      max allowed: {{ netapp_max_volumes_per_run }}
+    success_msg: "Validated {{ volumes | length }} volume(s) for processing."
+
+- name: Validate each volume entry has required fields
+  ansible.builtin.assert:
+    that:
+      - item.volume is defined
+      - item.volume | length > 0
+      - item.current_size_gb is defined
+      - item.current_size_gb | float > 0
+    fail_msg: "Invalid volume entry: {{ item }}"
+    quiet: true
+  loop: "{{ volumes }}"
+  loop_control:
+    label: "{{ item.volume | default('MISSING') }}"
+
+- name: Calculate growth plan
+  ansible.builtin.set_fact:
+    _growth_plan: >-
+      {{
+        _growth_plan | default([]) + [{
+          'volume': item.volume,
+          'svm': item.svm | default(netapp_target_svm),
+          'current_size_gb': item.current_size_gb | float,
+          'growth_gb': ((item.current_size_gb | float) * (netapp_volume_growth_percent | float / 100)) | round(2),
+          'new_max_size_gb': ((item.current_size_gb | float) * (1 + (netapp_volume_growth_percent | float / 100))) | round(2),
+          'new_max_size_bytes': (((item.current_size_gb | float) * (1 + (netapp_volume_growth_percent | float / 100))) * 1073741824) | int
+        }]
+      }}
+  loop: "{{ volumes }}"
+  loop_control:
+    label: "{{ item.volume }}"
+
+- name: Display growth plan
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      VOLUME GROWTH PLAN
+      ========================================
+      Mode:         {{ 'DRY RUN' if (netapp_dry_run | bool) else 'LIVE EXECUTION' }}
+      Growth:       {{ netapp_volume_growth_percent }}%
+      Target Mode:  {{ netapp_volume_autosize_target_mode }}
+      Volumes:      {{ _growth_plan | length }}
+      ========================================
+      {% for vol in _growth_plan %}
+      {{ vol.volume }}: {{ vol.current_size_gb }}GB → {{ vol.new_max_size_gb }}GB (+{{ vol.growth_gb }}GB)
+      {% endfor %}
+      ========================================
+
+- name: Skip volume modification in dry-run mode
+  ansible.builtin.debug:
+    msg: >-
+      DRY RUN: Would set {{ item.volume }} autosize-mode={{ netapp_volume_autosize_target_mode }},
+      max-autosize={{ item.new_max_size_gb }}GB
+  loop: "{{ _growth_plan }}"
+  loop_control:
+    label: "{{ item.volume }}"
+  when: netapp_dry_run | bool
+
+- name: Apply volume autosize configuration
+  when: not (netapp_dry_run | bool)
+  block:
+    - name: Set autosize parameters on each volume
+      netapp.ontap.na_ontap_volume_autosize:
+        hostname: "{{ netapp_hostname }}"
+        username: "{{ netapp_username }}"
+        password: "{{ netapp_password }}"
+        https: "{{ netapp_https }}"
+        validate_certs: "{{ netapp_validate_certs }}"
+        use_rest: always
+        vserver: "{{ item.svm | default(netapp_target_svm) }}"
+        volume: "{{ item.volume }}"
+        mode: "{{ netapp_volume_autosize_target_mode }}"
+        maximum_size: "{{ item.new_max_size_gb }}g"
+        grow_threshold_percent: 85
+      register: _grow_results
+      retries: "{{ netapp_retry_count }}"
+      delay: "{{ netapp_retry_delay }}"
+      until: _grow_results is not failed
+      loop: "{{ _growth_plan }}"
+      loop_control:
+        label: "{{ item.volume }}"
+      throttle: "{{ netapp_throttle }}"
+
+    - name: Build growth results summary
+      ansible.builtin.set_fact:
+        _growth_results_summary: >-
+          {{
+            _growth_results_summary | default([]) + [{
+              'volume': item.item.volume,
+              'current_size_gb': item.item.current_size_gb,
+              'new_max_size_gb': item.item.new_max_size_gb,
+              'changed': item.changed | default(false),
+              'failed': item.failed | default(false)
+            }]
+          }}
+      loop: "{{ _grow_results.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.volume }}"
+
+    - name: Display growth results
+      ansible.builtin.debug:
+        msg: |
+          ========================================
+          VOLUME GROWTH RESULTS
+          ========================================
+          {% for r in _growth_results_summary | default([]) %}
+          {{ r.volume }}: {{ r.current_size_gb }}GB → {{ r.new_max_size_gb }}GB | {{ 'CHANGED' if r.changed else ('FAILED' if r.failed else 'OK (no change)') }}
+          {% endfor %}
+          ========================================
+          Changed: {{ _growth_results_summary | default([]) | selectattr('changed') | list | length }}
+          Failed:  {{ _growth_results_summary | default([]) | selectattr('failed') | list | length }}
+          ========================================
+
+  rescue:
+    - name: Handle growth failure
+      ansible.builtin.debug:
+        msg: >-
+          Volume growth encountered errors.
+          Successfully processed: {{ _growth_results_summary | default([]) | rejectattr('failed') | list | length }}.
+          Failed: {{ _growth_results_summary | default([]) | selectattr('failed') | list | length }}.
+          Review the error output above for details.
+
+    - name: Set failure flag for downstream tasks
+      ansible.builtin.set_fact:
+        _growth_had_failures: true
+
+- name: Run post-growth validation
+  ansible.builtin.include_tasks: validate_growth.yml
+  when:
+    - netapp_validate_after_grow | bool
+    - not (netapp_dry_run | bool)
+
+- name: Generate and send report
+  ansible.builtin.include_tasks: report.yml
+  when: not (netapp_dry_run | bool)

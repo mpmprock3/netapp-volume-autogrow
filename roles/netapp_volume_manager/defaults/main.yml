@@ -1,0 +1,53 @@
+---
+# ============================================================================
+# NetApp Volume Manager Role - Default Configuration
+# ============================================================================
+# Override these in inventory group_vars, playbook vars, or AAP extra_vars.
+# Credentials should NEVER be set here - use vault.yml or AAP credential types.
+
+# --- Action routing ---
+# Valid values: "filter" or "grow"
+netapp_action: "filter"
+
+# --- NetApp ONTAP connection ---
+netapp_hostname: ""
+netapp_username: ""
+netapp_password: ""
+netapp_https: true
+netapp_validate_certs: true
+netapp_ontap_port: 443
+netapp_target_svm: ""
+
+# --- Volume filtering ---
+netapp_volume_size_threshold_gb: 100
+netapp_volume_name_prefix: "trident_pvc"
+netapp_volume_required_autosize_mode: "off"
+
+# --- Volume growth ---
+netapp_volume_growth_percent: 50
+netapp_volume_autosize_target_mode: "grow_shrink"
+netapp_volume_min_increment_gb: 1
+
+# --- Safety controls ---
+netapp_dry_run: false
+netapp_validate_after_grow: true
+netapp_fail_on_validation_error: true
+netapp_max_volumes_per_run: 200
+
+# --- Resilience ---
+netapp_retry_count: 3
+netapp_retry_delay: 5
+netapp_throttle: 10
+
+# --- Reporting ---
+netapp_report_dir: "/tmp/netapp_reports"
+netapp_report_cleanup: true
+netapp_send_email: true
+
+# --- SMTP (override in inventory group_vars) ---
+smtp_host: ""
+smtp_port: 25
+mail_from: ""
+mail_to: ""
+mail_cc: ""
+mail_subject: "NetApp Volume Autogrow Report"

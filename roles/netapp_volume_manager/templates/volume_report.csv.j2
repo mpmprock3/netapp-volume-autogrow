@@ -1,0 +1,4 @@
+vserver_name,volume_name,filesystem_size_gb,max_autosize_gb,autosize_mode,expected_max_gb,validation
+{% for item in volume_details | default([]) %}
+"{{ item.vserver_name }}","{{ item.volume_name }}","{{ item.filesystem_size }}","{{ item.max_autosize }}","{{ item.autosize_mode }}","{{ item.expected_max_gb }}","{{ 'PASS' if item.validation_passed | bool else 'FAIL' }}"
+{% endfor %}

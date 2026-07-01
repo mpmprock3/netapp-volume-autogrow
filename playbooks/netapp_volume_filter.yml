@@ -1,0 +1,26 @@
+---
+# Workflow Job 1: Discover NetApp volumes that need autogrow attention
+#
+# Finds volumes matching all of:
+#   - Name starts with netapp_volume_name_prefix (default: trident_pvc)
+#   - Autosize mode is 'off'
+#   - Size <= netapp_volume_size_threshold_gb (default: 100GB)
+#
+# Publishes filtered volume list via set_stats for Job 2 consumption.
+#
+# Usage (CLI):
+#   ansible-playbook playbooks/netapp_volume_filter.yml \
+#     -i inventory/production \
+#     --ask-vault-pass
+#
+# Usage (AAP):
+#   Configure as Job Template with NetApp ONTAP credential type.
+#   Wire as Job 1 in the volume_autogrow workflow template.
+
+- name: NetApp Volume Discovery and Filtering
+  hosts: netapp_controllers
+  gather_facts: true
+
+  roles:
+    - role: netapp_volume_manager
+      netapp_action: filter

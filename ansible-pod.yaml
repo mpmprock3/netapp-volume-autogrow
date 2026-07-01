@@ -1,0 +1,36 @@
+---
+# Production-grade Execution Environment pod for OpenShift
+# Prefer running via AAP Controller with EE; use this only for ad-hoc debugging.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: netapp-ansible-runner
+  namespace: ansible-automation
+  labels:
+    app.kubernetes.io/name: netapp-ansible-runner
+    app.kubernetes.io/component: automation
+spec:
+  serviceAccountName: ansible-runner
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: ansible
+      image: registry.redhat.io/ansible-automation-platform/ee-supported-rhel9:latest
+      command: ["/bin/sh", "-c", "sleep 3600"]
+      resources:
+        requests:
+          cpu: 250m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        readOnlyRootFilesystem: false
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 30

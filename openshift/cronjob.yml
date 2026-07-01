@@ -1,0 +1,175 @@
+---
+# CronJob: Run NetApp Volume Autogrow playbooks from OpenShift
+#
+# Prerequisites:
+#   1. Create the vault password secret:
+#      oc create secret generic netapp-vault-password \
+#        --from-literal=password='YOUR_VAULT_PASSWORD'
+#
+#   2. If the git repo is private, create a git credentials secret:
+#      oc create secret generic git-credentials \
+#        --from-literal=username='YOUR_GIT_USER' \
+#        --from-literal=token='YOUR_GIT_TOKEN'
+#      Then uncomment the GIT_USERNAME/GIT_TOKEN env vars in the initContainer.
+#
+#   3. Apply:  oc apply -k openshift/
+#
+#   4. Trigger ad-hoc:
+#      oc create job --from=cronjob/netapp-volume-autogrow netapp-manual-$(date +%s)
+#
+# Schedule: Weekly Sunday 02:00 AM (adjust spec.schedule as needed)
+
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: netapp-volume-autogrow
+  namespace: ansible-automation
+  labels:
+    app.kubernetes.io/name: netapp-volume-autogrow
+    app.kubernetes.io/component: automation
+    app.kubernetes.io/managed-by: kustomize
+spec:
+  schedule: "0 2 * * 0"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: netapp-volume-autogrow
+            app.kubernetes.io/component: automation
+        spec:
+          serviceAccountName: default
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: Never
+          terminationGracePeriodSeconds: 30
+
+          initContainers:
+            - name: git-clone
+              image: alpine/git:latest
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -e
+                  REPO_URL="${GIT_REPO_URL}"
+                  BRANCH="${GIT_BRANCH:-main}"
+
+                  # If git credentials are provided, inject them into the URL
+                  if [ -n "${GIT_USERNAME:-}" ] && [ -n "${GIT_TOKEN:-}" ]; then
+                    REPO_URL=$(echo "$REPO_URL" | sed "s|https://|https://${GIT_USERNAME}:${GIT_TOKEN}@|")
+                  fi
+
+                  echo "Cloning branch '${BRANCH}' from repo..."
+                  git clone --depth 1 --branch "${BRANCH}" "${REPO_URL}" /repo
+                  echo "Clone complete. Contents:"
+                  ls -la /repo/
+              env:
+                - name: GIT_REPO_URL
+                  value: "https://github.com/mpmprock3/netapp-volume-autogrow.git"
+                - name: GIT_BRANCH
+                  value: "main"
+                # Uncomment for private repos:
+                # - name: GIT_USERNAME
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: git-credentials
+                #       key: username
+                # - name: GIT_TOKEN
+                #   valueFrom:
+                #     secretKeyRef:
+                #       name: git-credentials
+                #       key: token
+              volumeMounts:
+                - name: repo-data
+                  mountPath: /repo
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: false
+
+          containers:
+            - name: ansible-runner
+              image: registry.redhat.io/ansible-automation-platform/ee-supported-rhel9:latest
+              workingDir: /repo
+              command:
+                - /bin/bash
+                - -c
+                - |
+                  set -e
+
+                  echo "=== Installing Ansible collections ==="
+                  ansible-galaxy collection install -r collections/requirements.yml --force
+                  pip install --quiet netapp-lib netapp-ontap
+
+                  echo ""
+                  echo "=== Stage 1: Volume Discovery and Filtering ==="
+                  ansible-playbook playbooks/netapp_volume_filter.yml \
+                    -i "inventory/${ANSIBLE_INVENTORY_ENV}/" \
+                    --vault-password-file /vault/password
+
+                  echo ""
+                  echo "=== Stage 2: Volume Growth (dry-run=${NETAPP_DRY_RUN}) ==="
+                  ansible-playbook playbooks/netapp_volume_grow.yml \
+                    -i "inventory/${ANSIBLE_INVENTORY_ENV}/" \
+                    --vault-password-file /vault/password \
+                    -e "netapp_dry_run=${NETAPP_DRY_RUN}"
+
+                  echo ""
+                  echo "=== Playbook run completed ==="
+              env:
+                - name: ANSIBLE_INVENTORY_ENV
+                  value: "production"
+                - name: NETAPP_DRY_RUN
+                  value: "false"
+                - name: ANSIBLE_FORCE_COLOR
+                  value: "true"
+                - name: ANSIBLE_STDOUT_CALLBACK
+                  value: "yaml"
+              volumeMounts:
+                - name: repo-data
+                  mountPath: /repo
+                  readOnly: true
+                - name: vault-password
+                  mountPath: /vault
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: 250m
+                  memory: 256Mi
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: false
+
+          volumes:
+            - name: repo-data
+              emptyDir: {}
+            - name: vault-password
+              secret:
+                secretName: netapp-vault-password
+                items:
+                  - key: password
+                    path: password

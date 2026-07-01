@@ -1,0 +1,107 @@
+---
+- name: Query volumes from ONTAP REST API
+  netapp.ontap.na_ontap_rest_info:
+    hostname: "{{ netapp_hostname }}"
+    username: "{{ netapp_username }}"
+    password: "{{ netapp_password }}"
+    https: "{{ netapp_https }}"
+    validate_certs: "{{ netapp_validate_certs }}"
+    use_rest: always
+    gather_subset:
+      - storage/volumes
+    parameters:
+      svm.name: "{{ netapp_target_svm }}"
+      name: "{{ netapp_volume_name_prefix }}*"
+    fields:
+      - name
+      - svm.name
+      - size
+      - autosize.mode
+      - autosize.maximum
+      - space.size
+      - state
+  register: _ontap_volumes_raw
+  retries: "{{ netapp_retry_count }}"
+  delay: "{{ netapp_retry_delay }}"
+  until: _ontap_volumes_raw is not failed
+
+- name: Set volume records fact
+  ansible.builtin.set_fact:
+    _all_volumes: "{{ _ontap_volumes_raw.ontap_info['storage/volumes'].records | default([]) }}"
+
+- name: Display total volumes discovered
+  ansible.builtin.debug:
+    msg: >-
+      Discovered {{ _all_volumes | length }} volume(s) matching prefix
+      '{{ netapp_volume_name_prefix }}' on SVM '{{ netapp_target_svm }}'
+
+- name: Initialize filtered volume list
+  ansible.builtin.set_fact:
+    volumes_to_publish: []
+
+- name: Build filtered volume list
+  ansible.builtin.set_fact:
+    volumes_to_publish: >-
+      {{ volumes_to_publish + [_vol_entry] }}
+  vars:
+    _size_gb: "{{ (item.size | float / 1073741824) | round(2) }}"
+    _vol_entry:
+      volume: "{{ item.name }}"
+      svm: "{{ item.svm.name }}"
+      current_size_gb: "{{ _size_gb | float }}"
+      current_size_bytes: "{{ item.size }}"
+      autosize_mode: "{{ item.autosize.mode }}"
+  loop: "{{ _all_volumes }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when:
+    - item.autosize.mode == netapp_volume_required_autosize_mode
+    - item.state | default('online') == 'online'
+    - (item.size | float / 1073741824) <= (netapp_volume_size_threshold_gb | float)
+
+- name: Display filtered volumes summary
+  ansible.builtin.debug:
+    msg: |
+      ========================================
+      FILTERED VOLUME REPORT
+      ========================================
+      SVM:             {{ netapp_target_svm }}
+      Host:            {{ netapp_hostname }}
+      Threshold:       <= {{ netapp_volume_size_threshold_gb }}GB
+      Autosize Mode:   {{ netapp_volume_required_autosize_mode }}
+      Name Prefix:     {{ netapp_volume_name_prefix }}
+      ----------------------------------------
+      Total Discovered:  {{ _all_volumes | length }}
+      Matching Filter:   {{ volumes_to_publish | length }}
+      ========================================
+
+- name: Display each filtered volume
+  ansible.builtin.debug:
+    msg: >-
+      {{ item.volume }} | {{ item.current_size_gb }}GB |
+      autosize={{ item.autosize_mode }}
+  loop: "{{ volumes_to_publish }}"
+  loop_control:
+    label: "{{ item.volume }}"
+  when: volumes_to_publish | length > 0
+
+- name: Publish volume data for downstream workflow consumption
+  ansible.builtin.set_stats:
+    data:
+      volumes: "{{ volumes_to_publish }}"
+      volume_count: "{{ volumes_to_publish | length }}"
+      filter_svm: "{{ netapp_target_svm }}"
+      filter_host: "{{ netapp_hostname }}"
+      filter_threshold_gb: "{{ netapp_volume_size_threshold_gb }}"
+    per_host: false
+  when: volumes_to_publish | length > 0
+
+- name: Warn if no volumes matched filter criteria
+  ansible.builtin.debug:
+    msg: >-
+      No volumes matched the filter criteria
+      (prefix={{ netapp_volume_name_prefix }},
+      autosize={{ netapp_volume_required_autosize_mode }},
+      size <= {{ netapp_volume_size_threshold_gb }}GB).
+      No data published for downstream workflow.
+  when: volumes_to_publish | length == 0

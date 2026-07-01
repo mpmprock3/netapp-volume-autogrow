@@ -1,0 +1,51 @@
+---
+# AAP Custom Credential Type: NetApp ONTAP
+#
+# Setup in AAP Controller:
+#   1. Navigate to Administration > Credential Types
+#   2. Create new credential type with the input/injector config below
+#   3. Create a credential using this type under Resources > Credentials
+#   4. Attach the credential to your Job Templates
+#
+# The injector maps credential fields to extra_vars consumed by the role.
+# Passwords are masked in AAP logs automatically.
+
+name: "NetApp ONTAP"
+description: "Credentials for NetApp ONTAP storage cluster REST API access"
+kind: "cloud"
+
+inputs:
+  fields:
+    - id: netapp_hostname
+      type: string
+      label: "ONTAP Cluster/SVM Hostname"
+      help_text: "FQDN or IP address of the NetApp ONTAP cluster management LIF"
+    - id: netapp_username
+      type: string
+      label: "Username"
+      help_text: "ONTAP admin or SVM-scoped user with volume management permissions"
+    - id: netapp_password
+      type: string
+      label: "Password"
+      secret: true
+    - id: netapp_target_svm
+      type: string
+      label: "Target SVM"
+      help_text: "Storage Virtual Machine name to manage volumes on"
+    - id: netapp_validate_certs
+      type: boolean
+      label: "Validate TLS Certificates"
+      default: true
+  required:
+    - netapp_hostname
+    - netapp_username
+    - netapp_password
+    - netapp_target_svm
+
+injectors:
+  extra_vars:
+    netapp_hostname: !unsafe "{{ netapp_hostname }}"
+    netapp_username: !unsafe "{{ netapp_username }}"
+    netapp_password: !unsafe "{{ netapp_password }}"
+    netapp_target_svm: !unsafe "{{ netapp_target_svm }}"
+    netapp_validate_certs: !unsafe "{{ netapp_validate_certs }}"

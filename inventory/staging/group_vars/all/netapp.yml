@@ -1,0 +1,21 @@
+---
+netapp_hostname: "storage-staging.example.com"
+netapp_https: true
+netapp_validate_certs: true
+netapp_ontap_port: 443
+netapp_target_svm: "SVM_Staging"
+
+netapp_volume_size_threshold_gb: 100
+netapp_volume_name_prefix: "trident_pvc"
+netapp_volume_growth_percent: 50
+netapp_volume_autosize_target_mode: "grow_shrink"
+
+netapp_username: "{{ vault_netapp_username }}"
+netapp_password: "{{ vault_netapp_password }}"
+
+smtp_host: "smtp-staging.example.com"
+smtp_port: 25
+mail_from: "ansible-staging@example.com"
+mail_to: "storage-team-staging@example.com"
+mail_cc: ""
+mail_subject: "[STAGING] NetApp Volume Autogrow Report - {{ netapp_target_svm }}"
