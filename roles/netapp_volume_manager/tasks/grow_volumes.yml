@@ -83,7 +83,7 @@
         vserver: "{{ item.svm | default(netapp_target_svm) }}"
         volume: "{{ item.volume }}"
         mode: "{{ netapp_volume_autosize_target_mode }}"
-        maximum_size: "{{ item.new_max_size_gb }}g"
+        maximum_size: "{{ item.new_max_size_gb | int }}g"
         grow_threshold_percent: 85
       register: _grow_results
       retries: "{{ netapp_retry_count }}"

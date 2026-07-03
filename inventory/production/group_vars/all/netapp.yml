@@ -4,7 +4,7 @@
 
 netapp_hostname: "storage.example.com"
 netapp_https: true
-netapp_validate_certs: true
+netapp_validate_certs: false
 netapp_ontap_port: 443
 netapp_target_svm: "SVM_Name"
 

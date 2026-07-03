@@ -46,6 +46,7 @@ spec:
         spec:
           serviceAccountName: default
           securityContext:
+            runAsUser: 1000
             runAsNonRoot: true
             seccompProfile:
               type: RuntimeDefault
@@ -107,7 +108,7 @@ spec:
 
           containers:
             - name: ansible-runner
-              image: registry.redhat.io/ansible-automation-platform/ee-supported-rhel9:latest
+              image: quay.io/ansible/creator-ee:latest
               workingDir: /repo
               command:
                 - /bin/bash
@@ -115,9 +116,12 @@ spec:
                 - |
                   set -e
 
+                  export HOME=/tmp
+                  export PATH=$PATH:/tmp/.local/bin
+
                   echo "=== Installing Ansible collections ==="
                   ansible-galaxy collection install -r collections/requirements.yml --force
-                  pip install --quiet netapp-lib netapp-ontap
+                  pip install --user --quiet netapp-lib netapp-ontap
 
                   echo ""
                   echo "=== Stage 1: Volume Discovery and Filtering ==="
@@ -142,7 +146,9 @@ spec:
                 - name: ANSIBLE_FORCE_COLOR
                   value: "true"
                 - name: ANSIBLE_STDOUT_CALLBACK
-                  value: "yaml"
+                  value: "default"
+                - name: HOME
+                  value: "/tmp"
               volumeMounts:
                 - name: repo-data
                   mountPath: /repo

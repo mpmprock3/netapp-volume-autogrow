@@ -12,13 +12,19 @@ metadata:
 spec:
   serviceAccountName: ansible-runner
   securityContext:
+    runAsUser: 1000
     runAsNonRoot: true
     seccompProfile:
       type: RuntimeDefault
   containers:
     - name: ansible
-      image: registry.redhat.io/ansible-automation-platform/ee-supported-rhel9:latest
+      image: quay.io/ansible/creator-ee:latest
       command: ["/bin/sh", "-c", "sleep 3600"]
+      env:
+        - name: HOME
+          value: "/tmp"
+        - name: PATH
+          value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/tmp/.local/bin"
       resources:
         requests:
           cpu: 250m

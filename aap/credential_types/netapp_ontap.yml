@@ -18,12 +18,17 @@ inputs:
   fields:
     - id: netapp_hostname
       type: string
-      label: "ONTAP Cluster/SVM Hostname"
-      help_text: "FQDN or IP address of the NetApp ONTAP cluster management LIF"
+      label: "ONTAP Cluster Management Hostname"
+      help_text: >-
+        FQDN or IP of the ONTAP cluster management LIF.
+        For AWS FSxN: use the File System Management IP (cluster-level), NOT the SVM Management IP.
     - id: netapp_username
       type: string
       label: "Username"
-      help_text: "ONTAP admin or SVM-scoped user with volume management permissions"
+      help_text: >-
+        Cluster-scoped admin user with volume management permissions.
+        For AWS FSxN: use fsxadmin (cluster-scoped), NOT vsadmin (SVM-scoped).
+        vsadmin cannot access /api/cluster endpoints required for pre-flight checks.
     - id: netapp_password
       type: string
       label: "Password"
